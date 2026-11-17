@@ -2,6 +2,12 @@
 
 A GPU trace (`.lxtrace`) holds what the emulated GPU consumed over a window, in the order it consumed it, after a snapshot of the GPU state at the window's start. It records guest inputs (command words, guest memory, engine registers, maps and presents), never host Vulkan calls, so a replay runs the shader translation, the caches and the Vulkan backend of the build that replays it.
 
+Traces can contain game code, shaders, textures, buffers and personal information. Do not publish
+game-derived traces or add them to the repository. Ask a maintainer for handling instructions
+before sharing the minimum necessary material, and share only what you have permission to
+disclose. A private transfer does not by itself establish permission to redistribute game data.
+Use synthetic traces for public examples and tests.
+
 ## Replay
 
 ```sh
@@ -16,6 +22,24 @@ The replay needs no game, no window and no keys. It brings up the GPU on a bare 
 The window is a `VK_EXT_headless_surface` surface (`WindowSystemType::Headless`), so any Vulkan driver with that extension works, Mesa's lavapipe included.
 
 `eden-cli --gpu-trace-sample <trace>` writes a synthetic trace that needs no game: one Switch 2 channel whose four frames are two CPU-written images and two sets of 3D engine clears (whole and scissored). The unit tests read it back (`[gpu_trace]`).
+
+## Recording
+
+A recording starts at the GPU thread's next command boundary where no channel waits on a semaphore, and ends after a number of presents (180 by default: 3 s at 60 fps). Start it with:
+
+- the debug server: `trace_record` `{seconds?, presents?, path?}` (default 3 s, into the dump directory), `trace_stop`, `trace_status`;
+- or `EDEN_NX2_GPU_TRACE=<dir>`: touching `<dir>/record.now` starts `<dir>/trace-<time>.lxtrace` (`EDEN_NX2_GPU_TRACE_PRESENTS=<n>` sets the length).
+
+What happens (`video_core/gpu_trace/recorder.cpp`):
+
+1. **Snapshot.** The GPU split drains and the 3D and compute engines take their state back from its front. Then the recorder writes every GPU address space and its mappings, from a map log each address space keeps, and the engine and global state. GPU-written data in the caches is flushed to guest memory, and every guest page the mappings reach is copied (zero pages skipped, identical pages stored once).
+2. **CPU writes.** For the window, the recorder holds a cached-page reference on every page it copied, so each guest CPU write to them takes the rasterizer write path, where it is noted after the store. Before each later GPU command, the bytes written since the previous command are recorded with their current content, so GPU results on the rest of the page stay the replay's own. Recording needs the JIT CPU backend: NCE notes a write when it faults, before the store lands, so a recording under NCE fails to start. CPU-heavy scenes run slower while recording.
+3. **Commands.** Each command list is recorded when the GPU thread takes it: its GPFIFO entries, the words copied at submit and the entries still deferred. GPU memory maps are recorded when they happen, with the SMMU mapping and content of any new pages.
+4. **Presents.** A composite request is recorded at the GPU tick that runs it, in order with the commands.
+
+`eden-cli --replay <trace> --out <dir> --record <new trace> --record-from <present>` records a replay from a present on. Replaying the new trace must give the same frames as the original from that present: that round trip checks the recorder, the snapshot and the restore against each other.
+
+A channel that starts submitting after the snapshot ends the recording before its first submit, and a GPU shutdown ends it at once; both traces replay up to that point. Not recorded yet: SMMU unmaps (the replay keeps the stale mapping), sparse backing changes, the order in which suspended channels resume, and Switch 2 semaphore region changes after the snapshot. There is no Qt hotkey yet: use the debug server or the file trigger.
 
 ## File format
 

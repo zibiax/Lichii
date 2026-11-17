@@ -6,10 +6,14 @@
 #include <span>
 
 #include "common/common_types.h"
+#include <vector>
+
+#include "video_core/gpu_trace/map_log.h"
 #include "video_core/gpu_trace/trace_file.h"
 
 namespace Tegra {
 class GPU;
+class MemoryManager;
 namespace Control {
 struct ChannelState;
 }
@@ -52,9 +56,10 @@ struct StateAccess {
     static void CaptureGlobals(Writer& writer, Tegra::Control::ChannelState* any_channel,
                                Tegra::Host1x::SyncpointManager& syncpoints);
 
-    /// Applies a State record. `channel` is the record's channel, initialized (GPU::InitChannel),
-    /// or null for a global one. Returns false if the record doesn't fit this build.
-    static bool Restore(const Record& record, Tegra::Control::ChannelState* channel,
+    /// Applies a State record of a trace in format `version` (Reader::Version). `channel` is the
+    /// record's channel, initialized (GPU::InitChannel), or null for a global one. Returns false
+    /// if the record doesn't fit this build.
+    static bool Restore(const Record& record, u32 version, Tegra::Control::ChannelState* channel,
                         Tegra::Control::ChannelState* any_channel,
                         Tegra::Host1x::SyncpointManager& syncpoints);
 
@@ -65,6 +70,11 @@ struct StateAccess {
     /// Hands the split's front state back to the engines and applies batched writes, so the
     /// engine objects hold the channel's whole state (before CaptureChannel).
     static void Settle(Tegra::Control::ChannelState& channel);
+
+    /// A GPU address space's page geometry.
+    static AddressSpaceRecord AddressSpace(const Tegra::MemoryManager& memory_manager);
+    /// What it maps.
+    static std::vector<MapLog::Entry> Maps(const Tegra::MemoryManager& memory_manager);
 };
 
 } // namespace VideoCommon::GpuTrace
